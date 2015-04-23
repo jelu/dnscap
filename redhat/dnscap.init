@@ -1,0 +1,128 @@
+#!/bin/bash
+#
+# dnscap         This shell script takes care of starting and stopping
+#                 the Passive DNS capture traffic.
+#
+# chkconfig: - 90 12
+# description:    dnscap is a libpcap dns traffic capture tool .
+# processname:    dnscap
+# config:         
+# config:         /etc/sysconfig/dnscap
+# pidfile:        /var/run/dnscap.pid
+### BEGIN INIT INFO
+# Required-Start: $network
+# Required-Stop: $network
+### END INIT INFO
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Defines
+DESC="dns traffic capture program"
+PROG="dnscap"
+EXEC="/usr/sbin/${PROG}"
+LOCK="/var/lock/subsys/${PROG}"
+PIDF="/var/run/${PROG}.pid"
+STOP_TIMEOUT="10"
+BASEDIR="/var/lib/dnscap"
+HOSTNAME="$(hostname -f)"
+RUN_AS="root"
+#Default arguments, change in /etc/sysconfig/dnscap
+INTERFACE="eth0"
+BASEDIR="/var/lib/dnscap"
+BASEFILE="$BASEDIR/$HOSTNAME"
+PACKETS="100000"
+# TIME = 1800 (30 MINUTES)
+TIME="1800"
+
+# Include config
+if [ -s /etc/sysconfig/dnscap ]; then
+	. /etc/sysconfig/dnscap
+fi
+
+
+CMD=" -i $INTERFACE -w $BASEFILE -t $TIME -c $PACKETS" 
+
+start() {
+	local pid=
+	[ -x "${EXEC}" ] || exit 5
+	# Start daemons.
+	cd "$BASEDIR"
+
+	echo -n $"Starting ${DESC}: "
+	daemon --user=${RUN_AS} ${EXEC} ${CMD}    2\>/dev/null \& || failure
+
+	pid=`pidof -o %PPID ${PROG}`
+	RETVAL=${?}
+	if [ ${RETVAL} -ne 0 ] ; then
+		failure
+	else
+		touch ${LOCK} || failure
+		echo ${pid} >${PIDF} || failure
+		success
+	fi
+
+	echo
+	return ${RETVAL}
+}
+
+stop() {
+	echo -n $"Shutting down ${DESC}: "
+	if [ -f $PIDF ]; then
+		killproc -p "${PIDF}" -d ${STOP_TIMEOUT} $PROG 2\> /dev/null || failure
+		rm -f ${LOCK} || failure
+		rm -f ${PIDF} || failure
+	else
+		failure $"Stopping $prog"
+	fi
+	RETVAL=$?
+	[ ${RETVAL} -eq 0 ] && rm -f "${PIDF}"
+	echo
+}
+
+restart() {
+	stop
+	sleep 2
+	start
+}
+
+force_reload() {
+	restart
+}
+
+rh_status() {
+	status ${PROG}
+}
+
+rh_status_q() {
+	rh_status >/dev/null 2>&1
+}
+
+
+# See how we were called.
+case "${1}" in
+	start)
+		${1}
+		;;
+	stop)
+		${1}
+		;;
+	restart)
+	${1}
+	;;
+	force-reload)
+		force_reload
+		;;
+	status)
+		rh_status
+		;;
+	condrestart|try-restart)
+		rh_status_q || exit 0
+		restart
+		;;
+	*)
+		echo $"Usage: ${PROG} {start|stop|status|restart|try-restart|force-reload}"
+		exit 2
+esac
+exit ${?}
+
