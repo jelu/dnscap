@@ -1,4 +1,4 @@
-CFLAGS=-Wall -g -fPIC
+CFLAGS=-Wall -g -fPIC -std=gnu11
 
 all: csvout.so
 

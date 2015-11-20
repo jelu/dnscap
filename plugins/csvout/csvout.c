@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdbool.h>
 #include <netinet/in.h>
 #include <ctype.h>
 #include <errno.h>
@@ -145,41 +146,12 @@ csvout_output(const char *descr, iaddr from, iaddr to, uint8_t proto, int isfrag
     const u_char *pkt_copy, unsigned olen,
     const u_char *dnspkt, unsigned dnslen)
 {
-	/*
-	 * IP Stuff
-	 */
-//	fprintf(out, "%10lu.%06lu", ts.tv_sec, ts.tv_usec);
-//	fprintf(out, " %s %hu", ia_str(from), sport);
-//	fprintf(out, " %s %hu", ia_str(to), dport);
-//	fprintf(out, " %hhu", proto);
-
 	if (dnspkt) {
 		ns_msg msg;
-//		int qdcount;
-//		ns_rr rr;
-		ns_initparse(dnspkt, dnslen, &msg);
-		/*
-		 * DNS Header
-		 */
-//		fprintf(out, " %u", ns_msg_id(msg));
-//		fprintf(out, " %u", ns_msg_getflag(msg, ns_f_opcode));
-//		fprintf(out, " %u", ns_msg_getflag(msg, ns_f_rcode));
-//		fprintf(out, " |");
-//		if (ns_msg_getflag(msg, ns_f_qr)) fprintf(out, "QR|");
-//		if (ns_msg_getflag(msg, ns_f_aa)) fprintf(out, "AA|");
-//		if (ns_msg_getflag(msg, ns_f_tc)) fprintf(out, "TC|");
-//		if (ns_msg_getflag(msg, ns_f_rd)) fprintf(out, "RD|");
-//		if (ns_msg_getflag(msg, ns_f_ra)) fprintf(out, "RA|");
-//		if (ns_msg_getflag(msg, ns_f_ad)) fprintf(out, "AD|");
-//		if (ns_msg_getflag(msg, ns_f_cd)) fprintf(out, "CD|");
-		
-//		qdcount = ns_msg_count(msg, ns_s_qd);
-//		if (qdcount > 0 && 0 == ns_parserr(&msg, ns_s_qd, 0, &rr)) {
-//			fprintf (out, " %s %s %s",
-//				p_class(ns_rr_class(rr)),
-//				p_type(ns_rr_type(rr)),
-//				ns_rr_name(rr));
-//		}
+
+    // on error, just return here
+		if (ns_initparse(dnspkt, dnslen, &msg) != 0)
+      return;
 
     dump_dns_sect_csv(&msg, ns_s_an, &ts, &from);
 //    dump_dns_sect_csv(&msg, ns_s_ns, &ts, &from);
@@ -212,86 +184,106 @@ dump_dns_sect_csv(ns_msg *msg, const ns_sect sect, const my_bpftimeval *ts, cons
 
 static void
 dump_dns_rr_csv(ns_msg *msg, ns_rr *rr, ns_sect sect, const my_bpftimeval *ts, const iaddr *from) {
-	char buf[NS_MAXDNAME];
+	char buf[NS_MAXDNAME] = {0};
+	char buf_value[NS_MAXDNAME] = {0};
+	char buf_value_tmp[NS_MAXDNAME] = {0};
 	u_int type;
 	const u_char *rd;
-	u_int32_t soa[5];
+	u_int32_t soa[5] = {0};
 	u_int16_t mx;
 	int n;
+  bool is_error = false;
 
 	type = ns_rr_type(*rr);
 	rd = ns_rr_rdata(*rr);
 
-	fprintf(out, "%s,%10lu.%06lu,%s,%s,%s,%lu",
+	sprintf(buf, "%s,%10lu.%06lu,%s,%s,%s,%lu,",
     ia_str(*from),
     (*ts).tv_sec,
     (*ts).tv_usec,
 		ns_rr_name(*rr),
-		p_class(ns_rr_class(*rr)),
+    p_class(ns_rr_class(*rr)),
 		p_type(type),
     (u_long)ns_rr_ttl(*rr));
 
+
+  if (type != ns_t_soa)
+    return;
+
+
 	switch (type) {
     case ns_t_soa:
+
       n = ns_name_uncompress(ns_msg_base(*msg), ns_msg_end(*msg),
-                 rd, buf, sizeof buf);
+                 rd, buf_value_tmp, sizeof buf_value_tmp);
       if (n < 0)
         goto error;
 
-      putc(',', out);
-      fputs(buf, out);
+      strncat(buf_value, buf_value_tmp, strlen(buf_value_tmp));
+      strncat(buf_value, ",", 1);
+
       rd += n;
       n = ns_name_uncompress(ns_msg_base(*msg), ns_msg_end(*msg),
-                 rd, buf, sizeof buf);
+                 rd, buf_value_tmp, sizeof buf_value_tmp);
       if (n < 0)
         goto error;
-      putc(',', out);
-      fputs(buf, out);
+
+      strncat(buf_value, buf_value_tmp, strlen(buf_value_tmp));
+      strncat(buf_value, ",", 1);
+
       rd += n;
       if (ns_msg_end(*msg) - rd < 5*NS_INT32SZ)
         goto error;
+
       for (n = 0; n < 5; n++)
         MY_GET32(soa[n], rd);
-      sprintf(buf, "%u,%u,%u,%u,%u",
+
+      sprintf(buf_value_tmp, "%u,%u,%u,%u,%u",
         soa[0], soa[1], soa[2], soa[3], soa[4]);
+
+      strncat(buf_value, buf_value_tmp, strlen(buf_value_tmp));
+
       break;
 
     case ns_t_a:
-      inet_ntop(AF_INET, rd, buf, sizeof buf);
+      inet_ntop(AF_INET, rd, buf_value, sizeof buf_value);
       break;
 
     case ns_t_aaaa:
-      inet_ntop(AF_INET6, rd, buf, sizeof buf);
+      inet_ntop(AF_INET6, rd, buf_value, sizeof buf_value);
       break;
 
     case ns_t_mx:
       MY_GET16(mx, rd);
-      fprintf(out, ",%u", mx);
+      sprintf(buf_value, ",%u", mx);
       /* FALLTHROUGH */
 
     case ns_t_ns:
     case ns_t_ptr:
     case ns_t_cname:
       n = ns_name_uncompress(ns_msg_base(*msg), ns_msg_end(*msg),
-                 rd, buf, sizeof buf);
+                 rd, buf_value, sizeof buf_value);
       if (n < 0)
         goto error;
       break;
 
     case ns_t_txt:
-      snprintf(buf, (size_t)rd[0]+1, "%s", rd+1);
+      snprintf(buf_value, (size_t)rd[0]+1, "%s", rd+1);
       break;
 
     default:
     error:
-      sprintf(buf, "[%u]", ns_rr_rdlen(*rr));
+      is_error = true;
+      sprintf(buf_value, "[%u]", ns_rr_rdlen(*rr));
 	}
 
-	if (buf[0] != '\0') {
-		putc(',', out);
+	if (!is_error && buf_value[0] != '\0' && buf[0] != '\0') {
+    for (char *p = buf; *p != '\0'; ++p){ *p = tolower(*p); }
+    for (char *p = buf_value; *p != '\0'; ++p){ *p = tolower(*p); }
+
 		fputs(buf, out);
+		fputs(buf_value, out);
+    fputc('\n', out);
 	}
-
-  fprintf(out, "%s", "\n");
 }
 
