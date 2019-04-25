@@ -76,7 +76,7 @@ AC_CHECK_LIB([resolv], [res_mkquery], [], [
 	])
 ])
 AC_CHECK_LIB([dl], [dlopen])
-AC_CHECK_LIB([tinycbor], [cbor_parser_init])
+#AC_CHECK_LIB([tinycbor], [cbor_parser_init])
 AM_CONDITIONAL([HAVE_CBOR], [test "x$ac_cv_lib_tinycbor_cbor_parser_init" = "xyes"])
 AC_CHECK_LIB([ldns], [ldns_wire2pkt])
 AM_CONDITIONAL([HAVE_LDNS], [test "x$ac_cv_lib_ldns_ldns_wire2pkt" = "xyes"])
@@ -180,5 +180,6 @@ AC_CONFIG_FILES([
 	plugins/anonaes128/Makefile
 	plugins/cryptopan/Makefile
     plugins/cryptopant/Makefile
+    plugins/dnstap/Makefile
 ])
 AC_OUTPUT
